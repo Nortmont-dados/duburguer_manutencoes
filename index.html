@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 /* ============== NORTMONT DESIGN SYSTEM TOKENS ============== */
 :root{
@@ -509,9 +510,90 @@ tr:hover td{background:var(--mint)}
   border-top:1px solid var(--navy-100);
   text-transform:uppercase;letter-spacing:.12em;
 }
+
+/* ============== LOGIN SCREEN ============== */
+#login-screen{
+  position:fixed;inset:0;z-index:9999;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--navy-900);
+  font-family:'Montserrat',sans-serif;
+  padding:20px;
+}
+#login-screen.hidden{display:none;}
+.login-card{
+  background:var(--white);
+  border-radius:16px;
+  padding:40px 36px;
+  max-width:360px;width:100%;
+  text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
+.login-card h1{
+  font-size:18px;color:var(--navy-900);
+  margin:0 0 6px;font-weight:700;
+}
+.login-card p{
+  font-size:12.5px;color:var(--navy-400);
+  margin:0 0 24px;
+}
+#g_id_signin_container{
+  display:flex;justify-content:center;margin-bottom:14px;
+}
+.login-error{
+  display:none;
+  margin-top:16px;
+  padding:10px 12px;
+  background:#FDECEC;
+  color:#B3261E;
+  border-radius:8px;
+  font-size:12px;
+  line-height:1.5;
+}
+.login-error.show{display:block;}
+.login-loading{
+  display:none;
+  color:var(--navy-300);
+  font-size:11.5px;
+  margin-top:14px;
+}
+.login-loading.show{display:block;}
+
+#logout-btn{
+  position:fixed;top:14px;right:16px;z-index:500;
+  background:var(--white);
+  border:1px solid var(--navy-100);
+  border-radius:20px;
+  padding:6px 14px 6px 8px;
+  display:none;
+  align-items:center;gap:8px;
+  font-family:'Montserrat',sans-serif;
+  font-size:11.5px;font-weight:600;
+  color:var(--navy-700);
+  cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+#logout-btn.show{display:flex;}
+#logout-btn img{width:22px;height:22px;border-radius:50%;}
 </style>
 </head>
 <body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>Gestão de Frota</h1>
+    <p>Du Burguer — acesso restrito.<br>Entre com sua conta Google autorizada.</p>
+    <div id="g_id_signin_container"></div>
+    <div class="login-loading" id="login-loading">Verificando acesso…</div>
+    <div class="login-error" id="login-error">Este e-mail não tem permissão para acessar este sistema. Fale com o administrador.</div>
+  </div>
+</div>
+
+<!-- LOGOUT BUTTON -->
+<button id="logout-btn" onclick="logout()">
+  <img id="logout-avatar" src="" alt="">
+  <span id="logout-name"></span>
+</button>
 
 <div class="app">
 
@@ -852,6 +934,97 @@ const STORAGE_KEY = 'gestaoFrota_v2';
 // ▼▼▼ Cole aqui a URL gerada pelo Google Apps Script ▼▼▼
 const SHEETS_API_URL = 'https://script.google.com/macros/s/AKfycbyyUj5pDm2EGpa3ndourmaDk66-AoQay94DshuZ19Xjg_zdM7mLG3eeaLnNvund1Ux8/exec';
 // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+// ▼▼▼ ID do Cliente OAuth 2.0 (Google Cloud Console) ▼▼▼
+const GOOGLE_CLIENT_ID = '646359826891-6n02697db8prak694v25i9ftp19g6vrn.apps.googleusercontent.com';
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+// ▼▼▼ E-mails autorizados a acessar o sistema (letras minúsculas) ▼▼▼
+const ALLOWED_EMAILS = [
+  'duburguer@gmail.com',
+  'angella.focusfranquias@gmail.com'
+];
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+const AUTH_STORAGE_KEY = 'gestaoFrota_auth';
+
+/* ============== AUTENTICAÇÃO GOOGLE ============== */
+function decodeJwt(token){
+  try{
+    const base64 = token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+    const json = decodeURIComponent(atob(base64).split('').map(c =>
+      '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+    ).join(''));
+    return JSON.parse(json);
+  }catch(e){ console.error(e); return null; }
+}
+
+function handleCredentialResponse(response){
+  const payload = decodeJwt(response.credential);
+  if(!payload){ showLoginError(); return; }
+  const email = (payload.email || '').toLowerCase();
+  const emailVerified = payload.email_verified;
+  const isAllowed = emailVerified && ALLOWED_EMAILS.map(e => e.toLowerCase()).includes(email);
+
+  if(!isAllowed){
+    showLoginError();
+    return;
+  }
+
+  const authData = {
+    email: payload.email,
+    name: payload.name,
+    picture: payload.picture,
+    exp: payload.exp // timestamp em segundos
+  };
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData));
+  enterApp(authData);
+}
+
+function showLoginError(){
+  document.getElementById('login-loading').classList.remove('show');
+  document.getElementById('login-error').classList.add('show');
+  if(window.google) google.accounts.id.disableAutoSelect();
+}
+
+function enterApp(authData){
+  document.getElementById('login-screen').classList.add('hidden');
+  const logoutBtn = document.getElementById('logout-btn');
+  document.getElementById('logout-avatar').src = authData.picture || '';
+  document.getElementById('logout-name').textContent = authData.name ? authData.name.split(' ')[0] : 'Sair';
+  logoutBtn.classList.add('show');
+  startApp();
+}
+
+function logout(){
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+  if(window.google) google.accounts.id.disableAutoSelect();
+  location.reload();
+}
+
+function checkExistingSession(){
+  try{
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if(!raw) return false;
+    const authData = JSON.parse(raw);
+    const now = Math.floor(Date.now() / 1000);
+    if(!authData.exp || authData.exp < now) return false;
+    if(!ALLOWED_EMAILS.map(e => e.toLowerCase()).includes((authData.email||'').toLowerCase())) return false;
+    enterApp(authData);
+    return true;
+  }catch(e){ return false; }
+}
+
+window.addEventListener('load', () => {
+  if(checkExistingSession()) return;
+  if(window.google){
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleCredentialResponse
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('g_id_signin_container'),
+      { theme: 'outline', size: 'large', text: 'signin_with', shape: 'pill' }
+    );
+  }
+});
 let vehicles = [];
 let motoristas = [];
 let rotas = [];
@@ -1514,7 +1687,7 @@ function clearHist(){
 }
 
 /* ============== INIT ============== */
-(async () => {
+async function startApp(){
   loadState(); // carrega localStorage instantaneamente
   updateAllSelects();
   renderDash();
@@ -1522,7 +1695,7 @@ function clearHist(){
   await loadFromSheets(); // busca versão mais recente do Sheets
   updateAllSelects();
   renderDash();
-})();
+}
 </script>
 </body>
 </html>
