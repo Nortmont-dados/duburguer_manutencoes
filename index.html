@@ -513,7 +513,7 @@ tr:hover td{background:var(--mint)}
 
 /* ============== LOGIN SCREEN ============== */
 #login-screen{
-  position:fixed;inset:0;z-index:9999;
+  position:fixed;inset:0;z-index:10000;
   display:flex;align-items:center;justify-content:center;
   background:var(--navy-900);
   font-family:'Montserrat',sans-serif;
@@ -916,7 +916,7 @@ tr:hover td{background:var(--mint)}
 </div>
 
 <!-- LOADER -->
-<div id="sheets-loader">
+<div id="sheets-loader" class="hidden">
   <div class="loader-card">
     <div class="loader-spinner"></div>
     <div class="loader-text">Carregando dados do<br><strong>Google Sheets…</strong></div>
@@ -1092,10 +1092,12 @@ async function syncToSheets(){
 }
 
 async function loadFromSheets(){
+  const loaderEl = document.getElementById('sheets-loader');
   if(!sheetsAtivo()){
-    document.getElementById('sheets-loader').classList.add('hidden');
+    loaderEl.classList.add('hidden');
     return;
   }
+  loaderEl.classList.remove('hidden'); // exibe o loader só agora (já logado)
   try{
     const res = await fetch(SHEETS_API_URL + '?t=' + Date.now());
     const data = await res.json();
